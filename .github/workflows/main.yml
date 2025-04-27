@@ -13,7 +13,7 @@ jobs:
     steps:
       # 1) Check out your code
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # 2) Install Node.js (needed for MBT)
       - name: Set up Node.js
