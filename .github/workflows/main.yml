@@ -40,7 +40,7 @@ jobs:
 
       - name: Call CAPM endpoint with full GitHub context
         run: |
-          curl -X POST https://<your-capm-host>/trigger \
+          curl -X POST https://c6f5b46ctrial-dev-codesail-srv.cfapps.us10-001.hana.ondemand.com/trigger \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -d '{
