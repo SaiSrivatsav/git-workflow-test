@@ -1,0 +1,83 @@
+# .github/workflows/notify-capm.yml
+name: Notify CAPM Service on Push
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  notify-push-op:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Check out your code
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2) Install Node.js (needed for MBT)
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+
+      # 3) Install the Multi-Target Application Build Tool (MBT)
+      - name: Install MBT
+        run: npm install -g mbt@latest
+
+      # 4) Build the MTA archive
+      - name: Build MTA archive
+        run: mbt build -p cf
+
+      # 5) Upload the generated .mtar as a workflow artifact
+      - name: Upload MTA artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: mta-archive
+          path: mta_archives/*.mtar
+
+      # 6) (Optional) locate the generated .mtar path for payload
+      - name: Find MTAR file path (if any)
+        id: find-mtar
+        run: |
+          MTAR_FILE_PATH=$(find . -type f -path "*/mta_archives/*.mtar" | head -n1 || echo "")
+          echo "MTAR_FILE_PATH=$MTAR_FILE_PATH" >> $GITHUB_ENV
+
+      # 7) Fetch OAuth2 access token
+      - name: Fetch OAuth2 access token
+        id: auth
+        run: |
+          response=$(curl -s -X POST \
+            -u "${{ secrets.OAUTH_CLIENT_ID }}:${{ secrets.OAUTH_CLIENT_SECRET }}" \
+            -d "grant_type=client_credentials" \
+            "${{ secrets.OAUTH_TOKEN_URL }}")
+          token=$(echo "$response" | jq -r .access_token)
+          echo "ACCESS_TOKEN=$token" >> $GITHUB_ENV
+
+      # 8) Call your CAPM /trigger endpoint with full GitHub context
+      - name: Call CAPM endpoint with full GitHub context
+        run: |
+          curl -X POST https://c6f5b46ctrial-dev-codesail-srv.cfapps.us10-001.hana.ondemand.com/trigger \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -d '{
+              "ref":             "'"${{ github.ref }}"'",
+              "sha":             "'"${{ github.sha }}"'",
+              "actor":           "'"${{ github.actor }}"'",
+              "pusher": {
+                "name":  "'"${{ github.event.pusher.name }}"'",
+                "email": "'"${{ github.event.pusher.email }}"'"
+              },
+              "head_commit": {
+                "id":        "'"${{ github.event.head_commit.id }}"'",
+                "timestamp": "'"${{ github.event.head_commit.timestamp }}"'",
+                "message":   "'"${{ github.event.head_commit.message }}"'",
+                "url":       "'"${{ github.event.head_commit.url }}"'"
+              },
+              "repository": {
+                "name":      "'"${{ github.event.repository.name }}"'",
+                "full_name": "'"${{ github.event.repository.full_name }}"'",
+                "url":       "'"${{ github.event.repository.html_url }}"'"
+              },
+              "mtar_file_path":  "'"$MTAR_FILE_PATH"'"
+            }'
