@@ -3,32 +3,55 @@ name: Notify CAPM Service on Push
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   notify-push-op:
     runs-on: ubuntu-latest
+
     steps:
+      # 1) Check out your code
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # 2) Set up Node.js (needed for MBT)
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 16
 
+      # 3) Install the Multi-Target Application Build Tool (MBT)
       - name: Install MBT
         run: npm install -g mbt@latest
 
+      # 4) Build the MTA archive directly into the workspace root
       - name: Build MTA archive
-        run: mbt build -p cf
+        run: mbt build -p cf --mtar mta-archive.mtar
 
+      # 5) Upload the generated .mtar as a workflow artifact (no subfolder)
       - name: Upload MTA artifact
-        uses: actions/upload-artifact@v4       # ← updated to v4
+        uses: actions/upload-artifact@v4
         with:
           name: mta-archive
-          path: mta_archives/*.mtar
+          path: mta-archive.mtar
 
+      # 6) Retrieve the just-uploaded artifact's ID and download URL
+      - name: Get artifact info
+        id: artifact-info
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts")
+          ARTIFACT_ID=$(echo "$response" | jq -r \
+            '.artifacts[] | select(.name=="mta-archive") | .id')
+          ARTIFACT_URL=$(echo "$response" | jq -r \
+            '.artifacts[] | select(.name=="mta-archive") | .archive_download_url')
+          echo "ARTIFACT_ID=$ARTIFACT_ID" >> $GITHUB_ENV
+          echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
+
+      # 7) Fetch OAuth2 access token
       - name: Fetch OAuth2 access token
         id: auth
         run: |
@@ -38,15 +61,16 @@ jobs:
             "${{ secrets.OAUTH_TOKEN_URL }}")
           echo "ACCESS_TOKEN=$(echo "$response" | jq -r .access_token)" >> $GITHUB_ENV
 
+      # 8) Call your CAPM /trigger endpoint with full GitHub context
       - name: Call CAPM endpoint with full GitHub context
         run: |
           curl -X POST https://c6f5b46ctrial-dev-codesail-srv.cfapps.us10-001.hana.ondemand.com/trigger \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -d '{
-              "ref":            "'"${{ github.ref }}"'",
-              "sha":            "'"${{ github.sha }}"'",
-              "actor":          "'"${{ github.actor }}"'",
+              "ref":         "'"${{ github.ref }}"'",
+              "sha":         "'"${{ github.sha }}"'",
+              "actor":       "'"${{ github.actor }}"'",
               "pusher": {
                 "name":  "'"${{ github.event.pusher.name }}"'",
                 "email": "'"${{ github.event.pusher.email }}"'"
@@ -62,5 +86,7 @@ jobs:
                 "full_name": "'"${{ github.event.repository.full_name }}"'",
                 "url":       "'"${{ github.event.repository.html_url }}"'"
               },
-              "mtar_file_path":  "mta_archives/$(basename ${{ steps.find-mtar.outputs.MTAR_FILE_PATH }})"
+              "artifactId":  "'"$ARTIFACT_ID"'",
+              "artifactURL": "'"$ARTIFACT_URL"'",
+              "runID":       "'"${GITHUB_RUN_ID}"'"
             }'
