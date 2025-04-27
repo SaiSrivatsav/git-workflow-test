@@ -25,16 +25,16 @@ jobs:
       - name: Install MBT
         run: npm install -g mbt@latest
 
-      # 4) Build the MTA archive directly into the workspace root
+      # 4) Build the MTA archive
       - name: Build MTA archive
-        run: mbt build -p cf --mtar mta-archive.mtar
+        run: mbt build -p cf
 
-      # 5) Upload the generated .mtar as a workflow artifact (no subfolder)
+      # 5) Upload the .mtar as a workflow artifact
       - name: Upload MTA artifact
         uses: actions/upload-artifact@v4
         with:
           name: mta-archive
-          path: mta-archive.mtar
+          path: mta_archives/*.mtar
 
       # 6) Retrieve the just-uploaded artifact's ID and download URL
       - name: Get artifact info
@@ -42,6 +42,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # List artifacts for this run, then select our 'mta-archive'
           response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts")
           ARTIFACT_ID=$(echo "$response" | jq -r \
@@ -61,16 +62,16 @@ jobs:
             "${{ secrets.OAUTH_TOKEN_URL }}")
           echo "ACCESS_TOKEN=$(echo "$response" | jq -r .access_token)" >> $GITHUB_ENV
 
-      # 8) Call your CAPM /trigger endpoint with full GitHub context
+      # 8) Call your CAPM /trigger endpoint, now including artifactId, runID, artifactURL
       - name: Call CAPM endpoint with full GitHub context
         run: |
           curl -X POST https://c6f5b46ctrial-dev-codesail-srv.cfapps.us10-001.hana.ondemand.com/trigger \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -d '{
-              "ref":         "'"${{ github.ref }}"'",
-              "sha":         "'"${{ github.sha }}"'",
-              "actor":       "'"${{ github.actor }}"'",
+              "ref":           "'"${{ github.ref }}"'",
+              "sha":           "'"${{ github.sha }}"'",
+              "actor":         "'"${{ github.actor }}"'",
               "pusher": {
                 "name":  "'"${{ github.event.pusher.name }}"'",
                 "email": "'"${{ github.event.pusher.email }}"'"
@@ -86,7 +87,7 @@ jobs:
                 "full_name": "'"${{ github.event.repository.full_name }}"'",
                 "url":       "'"${{ github.event.repository.html_url }}"'"
               },
-              "artifactId":  "'"$ARTIFACT_ID"'",
-              "artifactURL": "'"$ARTIFACT_URL"'",
-              "runID":       "'"${GITHUB_RUN_ID}"'"
+              "artifactId":    "'"$ARTIFACT_ID"'",
+              "artifactURL":   "'"$ARTIFACT_URL"'",
+              "runID":         "'"${GITHUB_RUN_ID}"'"
             }'
