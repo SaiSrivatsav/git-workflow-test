@@ -5,6 +5,7 @@ sap.ui.define([
 
     return Controller.extend("cicdtest.gitactions.controller.View1", {
         onInit() {
+            // first change
         }
     });
 });
